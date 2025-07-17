@@ -147,22 +147,22 @@ Docker supports multiple volume types. Here's a breakdown:
   Managed by Docker and stored under `/var/lib/docker/volumes/`. These are great for persistent data like databases or application files.
 
   ```bash
-  docker volume create flasklogs
-  docker run -v flasklogs:/app/logs simple-flask-app
+  docker volume create phplogs
+  docker run -v phplogs:/app/logs simple-php-app
   ```
 
 - **Bind Mounts**  
   Maps a specific directory on your host to the container. Ideal for local development to sync your code.
 
   ```bash
-  docker run -v $(pwd):/app simple-flask-app
+  docker run -v $(pwd):/app simple-php-app
   ```
 
 - **tmpfs Mounts**  
   Stores data only in memory. Useful for temporary files or sensitive information.
 
   ```bash
-  docker run --tmpfs /app/tmp simple-flask-app
+  docker run --tmpfs /app/tmp simple-php-app
   ```
 
 ***
