@@ -473,7 +473,7 @@ Despite being built on complex networking primitives, Docker abstracts away the 
 ***
 ### Example: PHP App Connecting to MySQL via Docker Network
 
-Project structure:
+**Project structure:**
 
 ```
 simple-php-app-with-mysql/
@@ -574,13 +574,21 @@ The PHP app connects to the database using the hostname `mysql` because both con
 
 ## Docker Compose
 
-Docker Compose simplifies running multi-container applications by letting you define services, volumes, networks, and environment settings in a single YAML file (`docker-compose.yml`).
+### What is Docker Compose?
 
-Instead of running multiple `docker run` commands manually, Compose lets you start everything with:
+Docker Compose is a tool that makes it easier to define and manage multi-container Docker applications. It simplifies running interconnected services, such as a frontend, backend API, and database, by allowing them to be launched and controlled together.
 
-```bash
-docker-compose up -d
-```
+Using a YAML configuration file (typically `docker-compose.yml`), you can describe each service and its dependencies as code. This setup can be committed to your source repository for consistent deployments. Once defined, all services can be started with a single `docker compose` command, making it easier to coordinate development or testing environments.
+
+### Why Use Docker Compose?
+
+Compose simplifies managing multi-container apps by allowing you to define everything—like services, volumes, and ports—in one config file. With `docker compose up`, you can launch the entire stack (e.g., web app + database + cache) in one go, ensuring:
+
+- Consistent deployments across environments  
+- Easy reuse of your setup  
+- Fewer mistakes from manual configuration  
+- Better developer experience  
+
 
 ***
 
@@ -593,18 +601,54 @@ docker-compose up -d
 
 ***
 
+### Difference Between Docker and Docker Compose
+
+#### What’s the Difference?
+
+- **Docker** lets you build and run one container at a time — it’s great for packaging a single app with its dependencies.
+- **Docker Compose** helps you manage and orchestrate multiple containers together (like a full app stack) using a `docker-compose.yml` file.
+
+#### Comparison Table
+
+| Feature         | Docker                              | Docker Compose                              |
+|-----------------|-------------------------------------|---------------------------------------------|
+| **Scope**       | Single containers                   | Multi-container stacks                      |
+| **Tooling**     | Docker CLI (`docker run`, `start`)  | YAML config + CLI (`docker compose`)        |
+| **Relationships** | Manually linked                  | Automatically coordinated                   |
+| **Use Case**    | Isolated services                   | Full systems like web + DB + cache          |
+| **Deployment**  | One container at a time             | Whole stack with one command                |
+
+
+***
+
+### Benefits of Docker Compose
+
+- **Simplified Multi-Container Applications**
+  Docker Compose allows you to define and manage multi-container Docker applications using a single YAML file.
+
+- **Ease of Use**
+  With a single command, you can start, stop, and rebuild all the services defined in a `docker-compose.yml` file.
+
+- **Networking**
+  Docker Compose sets up a network for your application’s services, enabling them to communicate with each other using service names.
+
+- **Volume Management**
+  It allows for easy management of data volumes, ensuring persistent data across container restarts and clean separation of data from containers.
+
+***
+
 ### Example: PHP + MySQL Stack With phpMyAdmin
 
 **Project structure:**
 
 ```
-simple-php-app/
+simple-php-app-compose/
 ├── docker-compose.yml
 ├── index.php
 ├── Dockerfile
 ```
 
-**index.php**
+**index\.php**
 
 ```php
 <?php
@@ -633,7 +677,8 @@ EXPOSE 80
 version: "3.9"
 services:
   web:
-    build: .
+    build:
+      context: .
     ports:
       - "8080:80"
     volumes:
@@ -665,11 +710,20 @@ volumes:
 
 ### Compose Concepts Explained
 
-- `build:` points to a Dockerfile in the current directory.
-- `volumes:` maps host paths or named volumes into containers.
-- `depends_on:` ensures MySQL starts before the web container (but doesn’t wait for it to be _ready_).
-- `environment:` sets container environment variables (used by MySQL or phpMyAdmin).
-- `ports:` maps container port to a host port.
+- `build:`
+  Specifies how to build the container image from a `Dockerfile`. Usually points to the current directory (`.`), but can also be a remote Git repo or subfolder.
+
+- `volumes:`
+  Mounts host directories or Docker-managed volumes into containers. Useful for persisting data or enabling live code reloading during development.
+
+- `depends_on:`
+  Declares dependency order between services. It ensures a container (e.g., `mysql`) starts before another (e.g., `web`), but **does not** guarantee readiness — you may still need health checks or wait scripts.
+
+- `environment:`
+  Sets environment variables inside the container. These can configure services like MySQL credentials, app settings, or any config expected by your app.
+
+- `ports:`
+  Maps container ports to host machine ports. For example, `"8080:80"` exposes port `80` inside the container as `localhost:8080` on your machine.
 
 ***
 
@@ -903,3 +957,58 @@ docker-compose up -d
 - Volumes and networks are critical for real-world apps.
 - Docker Compose simplifies multi-container projects.
 - The PHP example shows how Docker can streamline local dev.
+
+***
+
+## Troubleshooting Tips
+
+### Docker: Permission Denied on Port 80
+
+```
+[emerg] bind() to 0.0.0.0:80 failed (13: Permission denied)
+```
+
+**Solution:** Use a port above 1024 (e.g. 8080), or run with elevated permissions:
+
+```bash
+sudo docker run -p 80:80 your-image
+```
+
+---
+
+### Docker Volume Not Mounted Properly on Windows
+
+**Issue:** Path errors like `error: no such file or directory`.
+
+**Solution:** Use full absolute paths, and ensure Docker Desktop is allowed to access the shared drive.
+
+```bash
+docker run -v /c/Users/YourUser/project:/app your-image
+```
+
+Also check Docker Desktop > Settings > Resources > File Sharing.
+
+---
+
+### MySQL Container Starts Too Late in Compose
+
+Even though you use `depends_on`, MySQL may not be ready in time.
+
+**Solution:** Use retry logic in your PHP code or wait-for-it/wait-for scripts in entrypoint.
+
+---
+
+### Logs Are Not Appearing in Mounted Volume
+
+**Issue:** App logs don't show up in the mounted `logs/` folder.
+
+**Solution:** Ensure:
+- The folder exists in your codebase.
+- You’ve granted the correct write permissions inside Dockerfile.
+- You use `www-data` or equivalent user for web processes.
+
+```Dockerfile
+RUN chown -R www-data:www-data /var/www/html/logs
+```
+
+---
