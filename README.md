@@ -148,21 +148,21 @@ Docker supports multiple volume types. Here's a breakdown:
 
   ```bash
   docker volume create phplogs
-  docker run -v phplogs:/app/logs simple-php-app
+  docker run -v phplogs:/var/www/html/logs simple-php-app
   ```
 
 - **Bind Mounts**  
   Maps a specific directory on your host to the container. Ideal for local development to sync your code.
 
   ```bash
-  docker run -v $(pwd):/app simple-php-app
+  docker run -v $(pwd):/var/www/html simple-php-app
   ```
 
 - **tmpfs Mounts**  
   Stores data only in memory. Useful for temporary files or sensitive information.
 
   ```bash
-  docker run --tmpfs /app/tmp simple-php-app
+  docker run --tmpfs /var/www/html/tmp simple-php-app
   ```
 
 ***
@@ -199,116 +199,6 @@ Docker volumes are suitable in the following scenarios:
 
 - Write to remote filesystems  
   Mount NFS or cloud storage volumes for distributed applications.
-
-***
-
-### Example: Add Log Volume to Flask App
-
-Let’s modify the **Dockerfile** to write logs into a folder:
-
-**app.py**
-
-```python
-from flask import Flask
-import logging
-
-app = Flask(__name__)
-
-logging.basicConfig(filename="logs/app.log", level=logging.INFO)
-
-@app.route("/")
-def hello():
-    app.logger.info("Home route accessed")
-    return "Hello from Flask inside Docker!"
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
-```
-
-**Dockerfile (unchanged)**
-
-```Dockerfile
-FROM python:3.11-slim
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-COPY . .
-EXPOSE 5000
-CMD ["python", "app.py"]
-```
-
-**Run with named volume for logs:**
-
-```bash
-docker volume create flasklogs
-docker run -p 5000:5000 -v flasklogs:/app/logs simple-flask-app
-```
-
-**Run with bind mount for live editing:**
-
-```bash
-docker run -p 5000:5000 -v $(pwd):/app simple-flask-app
-```
-
-Logs will be written into the mounted folder (named volume or bind path), and persist across restarts.
-
-***
-
-### Manage Data with Docker Volumes
-
-Volumes let you persist data created by containers or share data between them. They are the preferred mechanism for managing data in Docker because they are designed to be independent of the container lifecycle.
-
-***
-
-### Types of Docker Volumes
-
-Docker supports multiple volume types. Here's a breakdown:
-
-- **Named Volumes**  
-  Managed by Docker and stored under `/var/lib/docker/volumes/`. These are great for persistent data like databases or application files.
-
-  ```bash
-  docker volume create phplogs
-  docker run -v phplogs:/var/www/html/logs simple-php-app
-  ```
-
-- **Bind Mounts**  
-  Maps a specific directory on your host to the container. Ideal for local development to sync your code.
-
-  ```bash
-  docker run -v $(pwd):/var/www/html simple-php-app
-  ```
-
-- **tmpfs Mounts**  
-  Stores data only in memory. Useful for temporary files or sensitive information.
-
-  ```bash
-  docker run --tmpfs /var/www/html/tmp simple-php-app
-  ```
-
-***
-
-### Comparison: Named Volumes vs Bind Mounts
-
-| Named Volumes                                                                 | Bind Mounts                                                                  |
-|------------------------------------------------------------------------------|------------------------------------------------------------------------------|
-| Easy backups and recoveries                                                  | There is a bit of complexity involved in backup and recovery                |
-| To mount it, we only need the volume name, not including paths               | It is necessary to provide a path to the host machine when mounting         |
-| Containers can have volumes created while they are being created             | The mount folder will be created if it doesn't exist on the host            |
-| Volumes are stored in `/var/lib/docker/volumes`                              | A bind mount can reside anywhere on the host machine                        |
-
-***
-
-### When to Use Docker Volumes
-
-Docker volumes are suitable in the following scenarios:
-
-- Database storage  
-- Application data  
-- Essential caches  
-- Convenient data backups  
-- Share data between containers  
-- Write to remote filesystems
 
 ***
 
