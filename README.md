@@ -148,21 +148,21 @@ Docker supports multiple volume types. Here's a breakdown:
 
   ```bash
   docker volume create phplogs
-  docker run -v phplogs:/var/www/html/logs simple-php-app
+  docker run -v phplogs:/var/www/html/logs -p 8080:80 simple-php-app
   ```
 
 - **Bind Mounts**  
   Maps a specific directory on your host to the container. Ideal for local development to sync your code.
 
   ```bash
-  docker run -v $(pwd):/var/www/html simple-php-app
+  docker run -v $(pwd)/logs:/var/www/html/logs -p 8080:80 simple-php-app
   ```
 
 - **tmpfs Mounts**  
   Stores data only in memory. Useful for temporary files or sensitive information.
 
   ```bash
-  docker run --tmpfs /var/www/html/tmp simple-php-app
+  docker run --tmpfs /var/www/html/tmp -p 8080:80 simple-php-app
   ```
 
 ***
@@ -208,10 +208,24 @@ Docker volumes are suitable in the following scenarios:
 
 ```php
 <?php
-$logPath = "logs/access.log";
-file_put_contents($logPath, "[" . date("Y-m-d H:i:s") . "] Accessed\n", FILE_APPEND);
-echo "Hello from PHP inside Docker!";
-?>
+$logPath = __DIR__ . "/logs/access.log";
+
+// Ensure the logs directory exists
+if (!file_exists(dirname($logPath))) {
+    mkdir(dirname($logPath), 0777, true);
+}
+
+// Write a log entry
+file_put_contents($logPath, "[" . date("Y-m-d H:i:s") . "] Page visited\n", FILE_APPEND);
+
+// Display the log content
+echo "<h1>Access Log</h1>";
+if (file_exists($logPath)) {
+    echo "<pre>" . htmlspecialchars(file_get_contents($logPath)) . "</pre>";
+} else {
+    echo "<p>No log file found.</p>";
+}
+
 ```
 
 **Dockerfile (same as before)**
@@ -228,13 +242,14 @@ EXPOSE 80
 
 ```bash
 docker volume create phplogs
-docker run -p 8080:80 -v phplogs:/var/www/html/logs simple-php-app
+docker build -t simple-php-app-with-volume .
+docker run -p 8080:80 -v phplogs:/var/www/html/logs simple-php-app-with-volume
 ```
 
 **Run with bind mount for live editing:**
 
 ```bash
-docker run -p 8080:80 -v $(pwd):/var/www/html simple-php-app
+docker run -p 8080:80 -v $(pwd):/var/www/html simple-php-app-with-volume
 ```
 
 ***
@@ -357,41 +372,74 @@ Despite being built on complex networking primitives, Docker abstracts away the 
 | **Customization**       | Supports integration with physical networks (`macvlan`, third-party plugins)       | Highly customizable via hypervisor-level tools                             |
 | **Use Case Efficiency** | Lightweight, optimized for container-to-container communication                   | Better suited for full app stacks with stricter boundaries                  |
 
-> 📝 Docker is ideal for lightweight, fast-moving containerized services.  
-> 🧱 VMs are better for full system isolation or legacy workloads requiring full OS-level separation.
+> Docker is ideal for lightweight, fast-moving containerized services.  
+> VMs are better for full system isolation or legacy workloads requiring full OS-level separation.
 
 ***
-### Example: PHP App Connecting to MySQL via Docker Network
+### Example: PHP App Connecting from NGINX via Docker Network
 
 **Project structure:**
 
 ```
-simple-php-app-with-mysql/
-├── index.php
-├── Dockerfile
+php-nginx-network/
+├── php/
+│   ├── Dockerfile
+│   └── index.php
+├── nginx/
+│   ├── default.conf
+│   └── ping.txt
 ```
 
-**index\.php**
+**php/index\.php**
 
 ```php
 <?php
-$conn = new mysqli("mysql", "root", "rootpass", "appdb");
-
-if ($conn->connect_error) {
-    die("Connection failed: " . $conn->connect_error);
+// Serve own ping response
+if ($_SERVER['REQUEST_URI'] === '/ping') {
+    header('Content-Type: text/plain');
+    echo "pong from PHP";
+    exit;
 }
-echo "Connected to MySQL successfully!";
-?>
+
+// Call nginx service
+$nginxResponse = @file_get_contents('http://nginx/ping');
+
+echo "<h1>PHP ↔ NGINX via Docker Network</h1>";
+echo "<p><strong>PHP says:</strong> pong from PHP</p>";
+echo "<p><strong>NGINX says:</strong> " . htmlspecialchars($nginxResponse ?: 'no response') . "</p>";
 ```
 
-**Dockerfile**
+**php/Dockerfile**
 
 ```Dockerfile
-FROM php:8.2-apache
-WORKDIR /var/www/html
+FROM php:8.2-cli
+
+WORKDIR /app
 COPY . .
-RUN docker-php-ext-install mysqli
-EXPOSE 80
+CMD ["php", "-S", "0.0.0.0:80", "index.php"]
+```
+
+***
+
+**nginx/default.conf**
+
+```nginx
+server {
+    listen 80;
+
+    location /ping {
+        default_type text/plain;
+        alias /usr/share/nginx/html/ping.txt;
+    }
+}
+```
+
+***
+
+**nginx/ping.txt**
+
+```txt
+pong from NGINX
 ```
 
 ***
@@ -404,26 +452,24 @@ EXPOSE 80
 docker network create appnet
 ```
 
-2. **Run MySQL container in that network**
+2. **Build PHP and run image**
 
 ```bash
-docker run -d \
-  --name mysql \
-  --network appnet \
-  -e MYSQL_ROOT_PASSWORD=rootpass \
-  -e MYSQL_DATABASE=appdb \
-  mysql:8
-```
-
-3. **Build and run the PHP container in the same network**
-
-```bash
-docker build -t simple-php-app .
-docker run -d \
-  --name php \
+docker build -t simple-app-php-with-network-api ./php
+docker run -d --name php-api \
   --network appnet \
   -p 8080:80 \
-  simple-php-app
+  simple-app-php-with-network-api
+```
+
+3. **Run nginx container**
+
+```bash
+docker run -d --name nginx \
+  --network appnet \
+  -v $(pwd)/nginx/default.conf:/etc/nginx/conf.d/default.conf \
+  -v $(pwd)/nginx/ping.txt:/usr/share/nginx/html/ping.txt \
+  nginx:alpine
 ```
 
 The PHP app connects to the database using the hostname `mysql` because both containers are in the same `appnet` network.
@@ -772,72 +818,175 @@ docker-compose down -v
 
 ---
 
-## Docker Use Case with PHP Project
+## Full Example: PHP CRUD App with Docker (Volume, Network, Compose)
 
-### Goal
-Run a full-stack PHP application with MySQL and phpMyAdmin using Docker.
+This is a basic CRUD app written in raw PHP (no framework) that demonstrates how Docker volumes, networks, Dockerfile, and Compose work together.
+
+---
 
 ### Folder Structure
 
 ```
-my-php-project/
-├── docker-compose.yml
-├── Dockerfile
-├── index.php
+php-crud-docker/
+├── docker-compose.yaml
+├── web/
+│   ├── Dockerfile
+│   └── index.php
+└── db/
+    └── init.sql
 ```
 
-### Example Files
+---
 
-**index.php**
-
-```php
-<?php
-$mysqli = new mysqli("db", "root", "root", "appdb");
-echo "MySQL connection status: " . ($mysqli->connect_errno ? "Failed" : "Successful");
-?>
-```
-
-**Dockerfile**
-
-```Dockerfile
-FROM php:8.2-apache
-COPY . /var/www/html
-RUN docker-php-ext-install mysqli
-```
-
-**docker-compose.yml**
+### docker-compose.yaml
 
 ```yaml
-version: "3.8"
+version: '3.8'
+
 services:
   web:
-    build: .
+    build: ./web
     ports:
       - "8080:80"
     volumes:
-      - .:/var/www/html
+      - ./web:/var/www/html
+    networks:
+      - app-net
+    depends_on:
+      - db
+
   db:
-    image: mysql:8
+    image: mysql:5.7
     environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: appdb
-  phpmyadmin:
-    image: phpmyadmin
-    ports:
-      - "8081:80"
-    environment:
-      PMA_HOST: db
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: myapp
+      MYSQL_USER: user
+      MYSQL_PASSWORD: pass
+    volumes:
+      - db-data:/var/lib/mysql
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - app-net
+
+volumes:
+  db-data:
+
+networks:
+  app-net:
 ```
 
-### How to Run
+---
+
+### web/Dockerfile
+
+```Dockerfile
+FROM php:7.4-apache
+
+# Enable PDO and MySQL extensions
+RUN docker-php-ext-install pdo pdo_mysql
+
+COPY . /var/www/html/
+```
+
+---
+
+### web/index.php
+
+```php
+<?php
+// Connect to MySQL
+$pdo = new PDO('mysql:host=db;dbname=myapp', 'user', 'pass', [
+    PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+]);
+
+// Handle Create
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['name'])) {
+    $stmt = $pdo->prepare("INSERT INTO users (name) VALUES (:name)");
+    $stmt->execute(['name' => $_POST['name']]);
+    header("Location: /");
+    exit;
+}
+
+// Handle Delete
+if (isset($_GET['delete'])) {
+    $stmt = $pdo->prepare("DELETE FROM users WHERE id = ?");
+    $stmt->execute([$_GET['delete']]);
+    header("Location: /");
+    exit;
+}
+
+// Fetch all users
+$users = $pdo->query("SELECT * FROM users ORDER BY id DESC")->fetchAll(PDO::FETCH_ASSOC);
+?>
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>PHP Docker CRUD</title>
+    <style>
+        body { font-family: sans-serif; padding: 2rem; }
+        input[type="text"] { padding: 0.5rem; width: 200px; }
+        button { padding: 0.5rem; }
+        ul { list-style: none; padding: 0; }
+        li { margin: 0.5rem 0; }
+    </style>
+</head>
+<body>
+    <h1>Simple PHP CRUD</h1>
+
+    <h2>Add User</h2>
+    <form method="POST">
+        <input type="text" name="name" placeholder="Enter name" required>
+        <button type="submit">Add</button>
+    </form>
+
+    <h2>Users</h2>
+    <ul>
+        <?php foreach ($users as $user): ?>
+            <li>
+                <?= htmlspecialchars($user['name']) ?>
+                <a href="?delete=<?= $user['id'] ?>" onclick="return confirm('Are you sure?')">❌</a>
+            </li>
+        <?php endforeach; ?>
+    </ul>
+</body>
+</html>
+```
+
+---
+
+### db/init.sql
+
+```sql
+CREATE TABLE IF NOT EXISTS users (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(100) NOT NULL
+);
+```
+
+---
+
+### Running the App
 
 ```bash
-docker-compose up -d
+docker compose up --build
 ```
 
-- Open http://localhost:8080 to see your PHP app.
-- Open http://localhost:8081 for phpMyAdmin UI.
-- Your app will connect to the MySQL container via Docker network.
+- Visit: [http://localhost:8080](http://localhost:8080)
+- Add, view, and delete users.
+
+---
+
+### Docker Concepts Demonstrated
+
+| Feature            | Where It’s Used                               |
+|--------------------|-----------------------------------------------|
+| **Dockerfile**     | Builds custom PHP+Apache container in `/web`  |
+| **Docker Compose** | Orchestrates multi-service setup               |
+| **Volumes**        | Used for persisting MySQL data + code mount   |
+| **Network**        | Services communicate via internal network name (`db-data`) |
+| **Depends_on**     | Ensures DB container starts before PHP        |
+
 
 ---
 
