@@ -381,7 +381,7 @@ Despite being built on complex networking primitives, Docker abstracts away the 
 **Project structure:**
 
 ```
-php-nginx-network/
+simple-php-with-network/
 ├── php/
 │   ├── Dockerfile
 │   └── index.php
@@ -458,7 +458,6 @@ docker network create appnet
 docker build -t simple-app-php-with-network-api ./php
 docker run -d --name php-api \
   --network appnet \
-  -p 8080:80 \
   simple-app-php-with-network-api
 ```
 
@@ -469,7 +468,14 @@ docker run -d --name nginx \
   --network appnet \
   -v $(pwd)/nginx/default.conf:/etc/nginx/conf.d/default.conf \
   -v $(pwd)/nginx/ping.txt:/usr/share/nginx/html/ping.txt \
+  -p 8080:80 \
   nginx:alpine
+```
+
+Then open your browser to http://localhost:8080/ping and you should see:
+
+```
+pong from NGINX
 ```
 
 The PHP app connects to the database using the hostname `mysql` because both containers are in the same `appnet` network.
@@ -856,7 +862,7 @@ services:
       - db
 
   db:
-    image: mysql:5.7
+    image: mysql:8
     environment:
       MYSQL_ROOT_PASSWORD: rootpass
       MYSQL_DATABASE: myapp
@@ -867,6 +873,16 @@ services:
       - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
       - app-net
+
+  phpmyadmin:
+    image: phpmyadmin
+    ports:
+      - "8081:80"
+    networks:
+      - app-net
+    environment:
+      PMA_HOST: db
+      PMA_PORT: 3306
 
 volumes:
   db-data:
